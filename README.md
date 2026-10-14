@@ -1,5 +1,7 @@
 # agent-board
 
+> 🇬🇧 *A kanban board to run a team of AI agents (consultant, architect, developer, tester, researcher, domain expert) with Claude Code — every task tracked with estimated vs. actual time.*
+
 Base para trabajar con **Claude Code y un equipo de agentes** (consultor, arquitecto, desarrollador, tester,
 investigador y un experto de dominio) coordinados en un **panel kanban** con estimaciones y tiempos reales.
 Sirve para cualquier tipo de proyecto: una app, un análisis de datos, un estudio, una web…
