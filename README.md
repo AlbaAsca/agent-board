@@ -8,6 +8,11 @@ Sirve para cualquier tipo de proyecto: una app, un análisis de datos, un estudi
 Backlog → Próximo → En curso → Revisión → Hecho        + «Te necesita» y «Bloqueado»
 ```
 
+![Panel de agentes: cabecera con cola, precisión de estimaciones y tareas que te esperan; tarjetas de cada agente con su tarea actual y la siguiente; columnas kanban con estimado frente a real](docs/panel.png)
+
+*Ejemplo con datos de demostración: en cada tarea se ve el tiempo real frente al estimado (en rojo si se pasa),
+qué está haciendo cada agente y qué te toca a ti («Te necesita»).*
+
 ## Empezar un proyecto nuevo con esta base
 
 Dile a Claude (Claude Code, o una sesión de Claude con acceso a GitHub):
