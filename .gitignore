@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+board/.lock
+board/STOP
+board/runs/
+.claude/worktrees/
