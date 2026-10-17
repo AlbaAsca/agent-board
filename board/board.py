@@ -5,9 +5,10 @@ no se escribe a mano: se calcula de started_at/finished_at, que se ponen solos a
 
 CLI:
   python board/board.py list [--owner X]
-  python board/board.py add "Título" --owner desarrollador --est 15 [--prio alta] [--desc ".."] [--manual "qué debe hacer el responsable"]
+  python board/board.py add "Título" --owner desarrollador --est 15 [--prio alta] [--desc ".."] [--manual "qué debe hacer el responsable"] [--deps T-001,T-002]
   python board/board.py move T-012 doing [--by desarrollador] [--msg ".."]
   python board/board.py note T-012 "texto" [--by X]
+  python board/board.py desc T-012 "texto"   (descripción: lenguaje llano arriba; datos técnicos bajo una línea «## Técnico»)
   python board/board.py estimate T-012 20
   python board/board.py check
 """
@@ -90,6 +91,46 @@ def validate(b):
     return True
 
 
+# Carril «pensar»: roles que leen y escriben documentos y tarjetas. Cualquier otro rol (desarrollador, tester, los
+# que añadas) va a «medir», que es el que usa CPU para tests y mediciones. Ajusta THINK_ROLES a tus agentes.
+THINK_ROLES = {"investigador", "experto", "arquitecto"}
+LANE_OWNERS = {"think": THINK_ROLES,
+               "measure": {"desarrollador", "tester"}}
+LANES = ("think", "measure")
+
+
+def lane_state(b, lane):
+    """Estado del runner de un carril: 'all' = clave histórica `runner`; think/measure = `runners.<carril>`."""
+    if lane == "all":
+        return b.setdefault("runner", {})
+    return b.setdefault("runners", {}).setdefault(lane, {})
+
+
+def lane_owns(lane, owner):
+    return lane == "all" or (owner in THINK_ROLES) == (lane == "think")
+
+
+def pid_alive(pid):
+    """¿Sigue vivo el proceso? (sin os.kill: en Windows os.kill mata el proceso)."""
+    if not pid:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+    k.CloseHandle(h)
+    return bool(ok) and code.value == 259  # STILL_ACTIVE
+
+
 def task(b, tid):
     return next(t for t in b["tasks"] if t["id"] == tid)
 
@@ -132,6 +173,8 @@ def deps_done(b, t):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # consola Windows (cp1252): no romper con «≤», «→»…
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser()
     sp = p.add_subparsers(dest="cmd", required=True)
     l = sp.add_parser("list"); l.add_argument("--owner")
@@ -141,8 +184,10 @@ def main():
     a.add_argument("--est", type=float, required=True, help="minutos de agente")
     a.add_argument("--prio", default="media", choices=list(PRIO)); a.add_argument("--desc", default="")
     a.add_argument("--status", default="backlog", choices=STATES); a.add_argument("--manual")
-    a.add_argument("--by", default="consultor")
-    n = sp.add_parser("note"); n.add_argument("id"); n.add_argument("msg"); n.add_argument("--by", default="consultor")
+    a.add_argument("--by", default="consultor"); a.add_argument("--deps", default="", help="T-001,T-002")
+    n = sp.add_parser("note"); n.add_argument("id"); n.add_argument("text", nargs="?"); n.add_argument("--msg")
+    n.add_argument("--by", default="consultor")
+    d = sp.add_parser("desc"); d.add_argument("id"); d.add_argument("text"); d.add_argument("--by", default="consultor")
     e = sp.add_parser("estimate"); e.add_argument("id"); e.add_argument("minutes", type=float)
     sp.add_parser("check")
     o = p.parse_args()
@@ -157,12 +202,23 @@ def main():
                       f"{'' if t.get('auto', True) else '[Tú] '}{t['title']}")
         return
     if o.cmd == "add":
-        print(update(lambda b: new_task(b, o.title, o.owner, o.est, o.prio, o.desc, o.status, o.manual, o.by)["id"]))
+        def f(b):
+            t = new_task(b, o.title, o.owner, o.est, o.prio, o.desc, o.status, o.manual, o.by)
+            t["deps"] = [d.strip() for d in o.deps.split(",") if d.strip()]
+            return t["id"]
+        print(update(f))
         return
     if o.cmd == "move":
         update(lambda b: set_status(b, task(b, o.id), o.status, o.by, o.msg)); return
     if o.cmd == "note":
-        update(lambda b: log(task(b, o.id), o.by, o.msg)); return
+        text = o.text or o.msg
+        if not text:
+            p.error("note necesita el texto (posicional o --msg)")
+        update(lambda b: log(task(b, o.id), o.by, text)); return
+    if o.cmd == "desc":
+        def g(b):
+            t = task(b, o.id); t["desc"], t["updated"] = o.text, now(); log(t, o.by, "descripción reescrita")
+        update(g); return
     if o.cmd == "estimate":
         def f(b):
             t = task(b, o.id); t["estimate_min"] = o.minutes; log(t, "consultor", f"estimación {o.minutes:g} min")

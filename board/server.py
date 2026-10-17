@@ -5,6 +5,14 @@ Puede convivir con el servidor de tu proyecto (otro puerto).
 """
 import argparse
 import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -27,9 +35,47 @@ def panel():
     return FileResponse(HERE / "panel.html", headers={"Cache-Control": "no-store"})
 
 
+LANES = ("think", "measure")  # carriles del runner (board.py: LANES); el estado histórico `runner` = carril «all»
+
+
+def _lanes(lane):
+    if lane is None:
+        return list(LANES)
+    if lane not in LANES and lane != "all":
+        raise HTTPException(400, "lane debe ser think, measure o all")
+    return [lane]
+
+
+def _state(b, lane):
+    return b.setdefault("runner", {}) if lane == "all" else b.setdefault("runners", {}).setdefault(lane, {})
+
+
+AGENTS_DIR = HERE.parent / ".claude" / "agents"
+
+
+def agent_config(aid):
+    """model/effort del frontmatter de .claude/agents/<id>.md (se lee en cada petición: siempre al día)."""
+    f = AGENTS_DIR / f"{aid}.md"
+    if not f.is_file():
+        return {}
+    m = re.match(r"---\s*\n(.*?)\n---", f.read_text(encoding="utf-8"), re.S)
+    return dict(re.findall(r"^(model|effort):\s*(\S+)", m.group(1), re.M)) if m else {}
+
+
 @app.get("/api/board")
 def get_board():
-    return Response(BOARD.read_text(encoding="utf-8"), media_type="application/json", headers={"Cache-Control": "no-store"})
+    b = json.loads(BOARD.read_text(encoding="utf-8"))
+    for a in b.get("agents", []):
+        a.update(agent_config(a["id"]))
+    runners = b.setdefault("runners", {})
+    for r in [b.setdefault("runner", {})] + [runners.setdefault(k, {}) for k in LANES]:
+        r["alive"] = pid_alive(r.get("pid"))
+        if not r["alive"] and r.get("state") in ("working", "idle"):
+            r.update(state="stopped", current=None)  # pid muerto: no mostrar carriles fantasma
+        live = HERE / "runs" / r["live"] if r.get("live") else None
+        r["last_activity"] = (datetime.fromtimestamp(live.stat().st_mtime).astimezone().isoformat(timespec="seconds")
+                              if live and live.is_file() else None)  # última línea que escribió el agente
+    return Response(json.dumps(b, ensure_ascii=False), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
 EDITABLE = {"title", "owner", "priority", "estimate_min", "desc", "deps", "manual"}
@@ -93,6 +139,165 @@ async def runner_toggle(request: Request):
         b.setdefault("runner", {})["enabled"] = enabled
     bd.update(f)
     return {"enabled": enabled}
+
+
+# ---- Control del runner desde el panel (Windows) ----
+ROOT = HERE.parent
+TASK_NAME = f"{ROOT.name} runner"  # tarea del Programador de tareas (scripts/install-schedule.ps1)
+_sched_cache = {"t": 0, "v": None}
+
+
+def pid_alive(pid):
+    return _bd().pid_alive(pid)
+
+
+def claude_bin():
+    found = shutil.which("claude")
+    if found:
+        return found
+    hits = sorted(Path(os.environ.get("APPDATA", "")).glob("Claude/claude-code/*/*/claude.exe"), key=lambda p: p.stat().st_mtime)
+    return str(hits[-1]) if hits else "claude"
+
+
+@app.get("/api/runner/schedule")
+def runner_schedule():
+    """Próxima y última ejecución automática (Programador de tareas). Cacheado 60 s."""
+    if time.time() - _sched_cache["t"] < 60 and _sched_cache["v"]:
+        return _sched_cache["v"]
+    v = {"task": TASK_NAME, "exists": False}
+    if os.name == "nt":
+        ps = (f"$t=Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; if($t){{$i=$t|Get-ScheduledTaskInfo;"
+              "@{state=[string]$t.State;next=$i.NextRunTime.ToString('s');last=$i.LastRunTime.ToString('s');"
+              "result=$i.LastTaskResult}|ConvertTo-Json -Compress}")
+        try:
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
+                                 timeout=20, creationflags=0x08000000).stdout.strip()
+            if out:
+                v.update(json.loads(out), exists=True)
+        except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
+            v["error"] = str(e)
+    _sched_cache.update(t=time.time(), v=v)
+    return v
+
+
+def _short(x, n=220):
+    x = " ".join(str(x).split())
+    return x if len(x) <= n else x[:n] + "…"
+
+
+def live_events(lines):
+    """Resume los eventos stream-json de la CLI en líneas legibles: qué piensa, qué herramienta usa y qué le devuelve."""
+    out = []
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        typ = e.get("type")
+        if typ == "system" and e.get("subtype") == "init":
+            out.append({"kind": "inicio", "text": f"modelo {e.get('model', '?')}"})
+        elif typ in ("assistant", "user"):
+            for c in (e.get("message") or {}).get("content") or []:
+                if not isinstance(c, dict):
+                    continue
+                if c.get("type") == "text" and c.get("text", "").strip():
+                    out.append({"kind": "texto", "text": _short(c["text"], 600)})
+                elif c.get("type") == "thinking" and c.get("thinking", "").strip():
+                    out.append({"kind": "piensa", "text": _short(c["thinking"], 600)})
+                elif c.get("type") == "tool_use":
+                    i = c.get("input") or {}
+                    arg = i.get("command") or i.get("file_path") or i.get("pattern") or i.get("query") or i.get("url") or i.get("description") or ""
+                    out.append({"kind": "herramienta", "text": f"{c.get('name')}: {_short(arg, 300)}"})
+                elif c.get("type") == "tool_result":
+                    body = c.get("content")
+                    if isinstance(body, list):
+                        body = " ".join(x.get("text", "") for x in body if isinstance(x, dict))
+                    out.append({"kind": "error" if c.get("is_error") else "resultado", "text": _short(body or "(vacío)")})
+        elif typ == "result":
+            out.append({"kind": "fin", "text": _short(e.get("result") or e.get("subtype") or "", 400)})
+    return out
+
+
+@app.get("/api/runner/live")
+def runner_live(n: int = 60, lane: str = "all"):
+    """Lo que está haciendo el agente ahora (o hizo en la última ejecución), sin gastar tokens: lee el log en vivo."""
+    runs = HERE / "runs"
+    _lanes(lane)
+    name = _state(json.loads(BOARD.read_text(encoding="utf-8")), lane).get("live")
+    f = runs / name if name and (runs / name).is_file() else None
+    if not f and lane == "all":
+        files = sorted(runs.glob("live-*.jsonl"), key=lambda x: x.stat().st_mtime) if runs.is_dir() else []
+        f = files[-1] if files else None
+    if not f:
+        return {"file": None, "events": []}
+    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()[-400:]
+    return {"file": f.name, "events": live_events(lines)[-n:]}
+
+
+@app.post("/api/runner/start")
+def runner_start(lane: str = None):
+    """Arranca el runner en segundo plano: trabaja tarea tras tarea y se para cuando no quedan (--until-idle).
+    Sin ?lane= arranca los dos carriles (think con --contribute, measure); los que ya estén vivos se respetan."""
+    lanes, b = _lanes(lane), json.loads(BOARD.read_text(encoding="utf-8"))
+    legacy = pid_alive(b.get("runner", {}).get("pid"))  # un runner «all» ya cubre todos los carriles
+    todo = [] if legacy else [k for k in lanes if not pid_alive(_state(b, k).get("pid"))]
+    if not todo:
+        raise HTTPException(409, "El runner ya está en marcha")
+    bd = _bd()
+
+    def en(x):
+        x.setdefault("runner", {}).update(enabled=True)
+        for k in todo:
+            _state(x, k).update(enabled=True)
+    bd.update(en)
+    env = dict(os.environ, PYTHONUTF8="1", CLAUDE_BIN=claude_bin())
+    venv = ROOT / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    env["PATH"] = f"{venv}{os.pathsep}{env.get('PATH', '')}"
+    (HERE / "runs").mkdir(exist_ok=True)
+    log = open(HERE / "runs" / "panel.log", "a", encoding="utf-8")
+    flags = 0x00000008 | 0x00000200 | 0x08000000 if os.name == "nt" else 0  # DETACHED | NEW_GROUP | NO_WINDOW
+    args = dict(cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    pids = {}
+    for k in todo:
+        cmd = [sys.executable, str(HERE / "runner.py"), "--lane", k, "--until-idle"] + (["--contribute"] if k != "measure" else [])
+        try:  # fuera del "job" del proceso padre: si no, Windows lo mata cuando el padre termina
+            p = subprocess.Popen(cmd, creationflags=flags | (0x01000000 if os.name == "nt" else 0), **args)
+        except OSError:
+            p = subprocess.Popen(cmd, creationflags=flags, **args)
+        pids[k] = p.pid
+    return {"ok": True, "pids": pids, "pid": next(iter(pids.values()))}
+
+
+@app.post("/api/runner/stop")
+def runner_stop(lane: str = None):
+    """Para el runner (o un carril) y al agente que esté trabajando (mata el árbol de procesos). La tarea vuelve a Próximo."""
+    bd = _bd()
+    lanes = _lanes(lane) if lane else [*LANES, "all"]  # sin lane = los dos carriles y el runner único histórico
+    killed = False
+    for k in lanes:
+        pid = _state(bd.load(), k).get("pid")
+        if pid_alive(pid):
+            killed = True
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=0x08000000)
+            else:
+                os.kill(pid, 15)
+
+    def f(b):
+        for k in lanes:
+            for t in b["tasks"]:
+                if t["status"] != "doing" or not bd.lane_owns(k, t["owner"]):
+                    continue
+                if t.get("kind") == "contrib":
+                    bd.set_status(b, t, "done", "tú", "ronda parada desde el panel")
+                elif t["owner"] != "consultor":
+                    bd.set_status(b, t, "next", "tú", "parada desde el panel; se reintentará")
+            for a in b["agents"]:
+                if a["id"] != "consultor" and bd.lane_owns(k, a["id"]):
+                    a.update(status="idle", current=None)
+            _state(b, k).update(state="stopped", current=None, message="Parado desde el panel", heartbeat=bd.now())
+    bd.update(f)
+    return {"ok": True, "killed": killed}
 
 
 if __name__ == "__main__":

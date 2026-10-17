@@ -64,31 +64,48 @@ Pídeselo así: *«haz todo en orden de prioridad, que el tester vaya sacando ta
 paralelo cuando se pueda»*.
 
 ### Modo autónomo (sin conversación)
-`run-agents.bat` / `./run-agents.sh` lanza `board/runner.py`, que coge tareas del panel y las ejecuta con
-`claude -p --agent <rol>`, en este orden de prioridad:
+`board/runner.py` coge tareas del panel y las ejecuta con `claude -p --agent <rol>`, en este orden de prioridad:
 1. Revisión (las verifica el tester).
 2. Próximo.
 3. Backlog.
 
-- **Permisos limitados:** puede editar código y ejecutar tests. No puede instalar, ni descargar binarios, ni hacer `git push`.
-- **Commits:** hace uno antes y otro después de cada tarea, así que cualquier cambio se deshace con git.
+Se arranca de tres maneras: el botón **▶ Iniciar** del panel (trabaja hasta que no quedan tarjetas), `run-agents.bat` /
+`./run-agents.sh`, o de forma programada con `scripts/install-schedule.ps1` (Windows, cada 3 h).
+
+- **Permisos limitados:** puede editar código, ejecutar Python y leer git. No puede instalar, borrar, copiar con `cp`, hacer
+  commits ni `git push`, ni encadenar comandos. Tampoco carga los MCP del proyecto.
+- **Commits:** los hace el runner, antes y después de cada tarea y solo con los ficheros que cambió esa tarea.
+- **Dos carriles en paralelo** (`--lane think` y `--lane measure`): uno para los agentes que piensan y escriben
+  (investigador, experto, arquitecto) y otro para los que ejecutan (desarrollador, tester). Así avanzan dos tarjetas a la vez
+  sin que dos pruebas pesadas se peleen por la CPU.
+- **Comandos denegados a la vista:** si a un agente le bloquean un comando, queda anotado en su tarjeta; si lo bloqueado
+  era crear una tarjeta, la suya pasa a Bloqueado en vez de darse por hecha.
+- **Sin falsos fallos:** si se agota el cupo de uso de Claude, la tarjeta vuelve a su sitio y no cuenta como error.
+- **Rondas de aportación** (`--contribute`): si no hay tareas, un agente revisa el proyecto y propone como mucho dos tarjetas.
 - **Pausa:** con el botón del panel o creando `board/STOP`. Los registros quedan en `board/runs/`.
 - **Lo que no puede hacer solo:** si una tarea necesita algo tuyo, la pasa a «Te necesita» con instrucciones concretas.
+  Si solo espera otra cosa (una medición, otra tarjeta), va a «Bloqueado».
 
 ### El panel
 `python board/server.py` (o `run-panel`) → http://localhost:8020. Muestra:
 - Columnas kanban, con arrastrar y soltar para cambiar el estado.
-- Qué hace ahora cada agente y su próxima tarea.
+- Qué hace ahora cada agente, **si su proceso sigue vivo** y cuándo hizo su última acción. Si se ha caído, lo dice.
+- **Ver en directo** qué está haciendo el agente (qué piensa, qué herramienta usa y qué le devuelve), sin gastar tokens:
+  lee el log que la CLI escribe en `stream-json`.
+- Botones **▶ Iniciar**, **■ Parar** (mata al agente y devuelve su tarjeta a Próximo) y **Pausar**.
 - La estimación frente al tiempo real de cada tarea.
-- Cuántas cosas te esperan y el botón de pausar o reanudar el modo autónomo.
-- Crear, editar y borrar tareas.
+- Crear, editar y borrar tareas. La descripción se lee en lenguaje llano, con los detalles técnicos plegados.
 
 `board/board.json` es la única fuente de verdad. Solo se modifica con `board/board.py`, que bloquea el
 archivo porque escriben a la vez el panel, el modo autónomo y los agentes.
 
 ```bash
-python board/board.py add "Título" --owner desarrollador --est 20 --prio alta --desc "criterio de aceptación"
+python board/board.py add "Título" --owner desarrollador --est 20 --prio alta --desc "qué y por qué, en llano
+
+## Técnico
+detalles" --deps T-003
 python board/board.py move T-012 doing --by desarrollador
+python board/board.py desc T-012 "nueva descripción"
 python board/board.py list
 ```
 
@@ -123,20 +140,39 @@ python board/board.py list
 - Antes de tocar una regla hay que mirar el caso real que falla, con una captura o los datos.
 - Las tareas no se cierran en bloque: cada una registra su inicio y su fin, o las métricas dejan de servir.
 
+## Lecciones de gemma-agent y store-sales-forecasting (octubre 2026)
+
+- **El consultor mueve tarjetas, no implementa.** Si el consultor hace el trabajo, el panel deja de reflejar lo que pasa.
+- **«Te necesita» solo para lo que solo puede hacer una persona.** Lo que espera una medición o a otra tarjeta va a
+  Bloqueado; si no, la columna se llena de falsas alarmas.
+- **Un agente puede creer que ha terminado sin haberlo hecho.** Uno encadenó `cat` y `board.py add`, se le denegó y cerró su
+  tarjeta como hecha sin las tarjetas nuevas. Ahora los comandos denegados se anotan y bloquean la tarjeta.
+- **Verificar no es buscar palabras.** Un tester dio por buena una función porque el nombre aparecía en el código; el bug
+  salió después. El tester lee el diff, pasa los tests y prueba el comportamiento.
+- **Los tests no deben tocar el panel real.** Un test del botón Parar mataba al runner de verdad cada vez que se pasaba la suite.
+- **Windows tiene trampas silenciosas:** la consola en cp1252 rompe los acentos (UTF-8 forzado), la tarea programada no corre
+  con batería ni recupera las perdidas, un proceso lanzado desde otra herramienta muere con ella, y la CLI de Claude que trae
+  la app cambia de carpeta al actualizarse (se busca siempre la más reciente).
+- **Las descripciones las lee una persona:** lenguaje llano arriba y lo técnico debajo de `## Técnico`.
+- **Una instrucción contradictoria se paga:** «commits según CLAUDE.md» llevaba al desarrollador a intentar `git add`, que
+  está bloqueado. Cada regla del agente tiene que ser compatible con sus permisos.
+
 ## Estructura
 
 ```
-board/board.py        CLI y biblioteca del panel (con bloqueo de archivo)
-board/board.json      estado: proyecto, agentes, tareas (no editar a mano)
-board/server.py       servidor del panel (FastAPI) → http://localhost:8020
-board/panel.html      interfaz kanban
-board/runner.py       modo autónomo: ejecuta tareas con `claude -p --agent <rol>`
-.claude/agents/*.md   definición de cada agente
-CLAUDE.md             instrucciones del proyecto para Claude (plantilla a rellenar)
-run-panel.*           arranca el panel
-run-agents.*          arranca el modo autónomo
-tests/test_board.py   pruebas del panel
+board/board.py            CLI y biblioteca del panel (con bloqueo de archivo)
+board/board.json          estado: proyecto, agentes, carriles, tareas (no editar a mano)
+board/server.py           servidor del panel (FastAPI) → http://localhost:8020
+board/panel.html          interfaz kanban con vista en directo y control del runner
+board/runner.py           modo autónomo: ejecuta tareas con `claude -p --agent <rol>`
+.claude/agents/*.md       definición de cada agente
+CLAUDE.md                 instrucciones del proyecto para Claude (plantilla a rellenar)
+run-panel.*               arranca el panel
+run-agents.*              arranca el modo autónomo
+run-agents-scheduled.bat  lo que lanza la tarea programada (una tarjeta y sale)
+scripts/install-schedule.ps1  crea la tarea programada de Windows (con batería y recuperación)
+tests/                    pruebas del panel y del runner (conftest.py aísla el board.json real)
 ```
 
-Requisitos: Python 3.10+, `pip install fastapi uvicorn` y [Claude Code](https://claude.com/claude-code)
+Requisitos: Python 3.10+, `pip install fastapi uvicorn pytest httpx` y [Claude Code](https://claude.com/claude-code)
 para el modo autónomo.
