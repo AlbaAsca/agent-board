@@ -445,7 +445,7 @@ def main():
                 set_runner(state="idle", current=None, message="Sin tareas ejecutables")
                 if o.contribute and contribute(o) and o.dry_run:
                     break
-                if o.once or o.until_idle:
+                if o.once or o.until_idle or o.dry_run:
                     break
                 time.sleep(o.idle)
                 continue
