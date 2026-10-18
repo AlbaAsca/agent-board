@@ -186,38 +186,60 @@ def _short(x, n=220):
 
 
 def live_events(lines):
-    """Resume los eventos stream-json de la CLI en líneas legibles: qué piensa, qué herramienta usa y qué le devuelve."""
-    out = []
+    """Resume los eventos stream-json de la CLI en líneas legibles: qué piensa, qué herramienta usa y qué le devuelve.
+    Cada línea lleva su hora («t», ISO) y, si una herramienta sigue en marcha, una última línea «espera» con lo que lleva."""
+    from datetime import datetime, timedelta
+
+    out, t_last, started, done, progress = [], None, {}, set(), None
+
+    def add(kind, text, t=None):
+        out.append({"kind": kind, "text": text, "t": t or t_last})
+
     for line in lines:
         try:
             e = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if not isinstance(e, dict):
+            continue
         typ = e.get("type")
+        t_last = e.get("timestamp") or t_last
         if typ == "system" and e.get("subtype") == "init":
-            out.append({"kind": "inicio", "text": f"modelo {e.get('model', '?')}"})
+            add("inicio", f"modelo {e.get('model', '?')}")
+        elif typ == "tool_progress":  # latido de una herramienta larga (cada 30 s)
+            progress = (e.get("parent_tool_use_id"), e.get("tool_name"), e.get("elapsed_time_seconds") or 0)
         elif typ in ("assistant", "user"):
             for c in (e.get("message") or {}).get("content") or []:
                 if not isinstance(c, dict):
                     continue
                 if c.get("type") == "text" and c.get("text", "").strip():
-                    out.append({"kind": "texto", "text": _short(c["text"], 600)})
+                    add("texto", _short(c["text"], 600))
                 elif c.get("type") == "thinking" and c.get("thinking", "").strip():
-                    out.append({"kind": "piensa", "text": _short(c["thinking"], 600)})
+                    add("piensa", _short(c["thinking"], 600))
                 elif c.get("type") == "tool_use":
                     i = c.get("input") or {}
                     arg = i.get("command") or i.get("file_path") or i.get("pattern") or i.get("query") or i.get("url") or i.get("description") or ""
-                    out.append({"kind": "herramienta", "text": f"{c.get('name')}: {_short(arg, 300)}"})
+                    started[c.get("id")] = (t_last, c.get("name"), _short(arg, 120))
+                    add("herramienta", f"{c.get('name')}: {_short(arg, 300)}")
                 elif c.get("type") == "tool_result":
+                    done.add(c.get("tool_use_id"))
                     body = c.get("content")
                     if isinstance(body, list):
                         body = " ".join(x.get("text", "") for x in body if isinstance(x, dict))
                     kind = "resultado"
                     if c.get("is_error"):  # distinguir «me lo han prohibido» de un fallo normal que el agente corrige solo
                         kind = "denegado" if "Permission for this tool use was denied" in (body or "") else "error"
-                    out.append({"kind": kind, "text": _short(body or "(vacío)")})
+                    add(kind, _short(body or "(vacío)"))
         elif typ == "result":
-            out.append({"kind": "fin", "text": _short(e.get("result") or e.get("subtype") or "", 400)})
+            add("fin", _short(e.get("result") or e.get("subtype") or "", 400))
+    if progress and progress[0] not in done and progress[0] in started:
+        t0, name, arg = started[progress[0]]
+        secs = int(progress[2])
+        try:
+            t = (datetime.fromisoformat(t0.replace("Z", "+00:00")) + timedelta(seconds=secs)).isoformat() if t0 else None
+        except ValueError:
+            t = None
+        add("espera", f"{name} sigue ejecutándose: lleva {secs // 60} min {secs % 60:02d} s · {arg}", t)
     return out
 
 

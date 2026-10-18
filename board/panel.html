@@ -31,6 +31,8 @@ header h1{font-size:16px;margin:0}
 #live summary{cursor:pointer;font-weight:600}#liveFile{color:var(--muted);font-weight:400}
 #liveLog{max-height:340px;overflow:auto;margin-top:8px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
 #liveLog div{padding:2px 0;border-bottom:1px dashed var(--line);white-space:pre-wrap;word-break:break-word}
+#liveLog .ts{display:inline-block;min-width:64px;color:var(--muted);font-variant-numeric:tabular-nums;opacity:.8}
+#liveLog .espera{color:var(--acc)}
 #liveLog .k{display:inline-block;min-width:92px;color:var(--muted)}
 #liveLog .herramienta .k{color:var(--acc)}#liveLog .piensa{color:var(--muted);font-style:italic}
 #liveLog .error .k{color:var(--warn)}#liveLog .denegado .k{color:var(--bad);font-weight:700}#liveLog .fin{font-weight:600}
@@ -235,9 +237,10 @@ async function loadLive() {
   try {
     const r = await (await fetch("/api/runner/live?lane=" + $("#liveLane").value, { cache: "no-store" })).json();
     const box = $("#liveLog"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 20;
-    const icon = { inicio: "▶ inicio", texto: "💬 dice", piensa: "🤔 piensa", herramienta: "🔧 usa", resultado: "↩ recibe", error: "⚠ fallo (lo corrige)", denegado: "⛔ denegado", fin: "✅ fin" };
+    const icon = { inicio: "▶ inicio", texto: "💬 dice", piensa: "🤔 piensa", herramienta: "🔧 usa", resultado: "↩ recibe", error: "⚠ fallo (lo corrige)", denegado: "⛔ denegado", fin: "✅ fin", espera: "⏳ esperando" };
     $("#liveFile").textContent = r.file ? "· " + r.file : "· aún no hay ejecuciones";
-    box.innerHTML = r.events.map((e) => `<div class="${e.kind}"><span class="k">${icon[e.kind] || e.kind}</span>${esc(e.text)}</div>`).join("");
+    const hhmmss = (t) => t ? new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+    box.innerHTML = r.events.map((e) => `<div class="${e.kind}"><span class="ts">${hhmmss(e.t)}</span><span class="k">${icon[e.kind] || e.kind}</span>${esc(e.text)}</div>`).join("");
     if (atEnd) box.scrollTop = box.scrollHeight;
   } catch (e) {}
 }
