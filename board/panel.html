@@ -40,6 +40,26 @@ header h1{font-size:16px;margin:0}
 .desc-view .tech{white-space:pre-wrap;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--muted);margin-top:6px}
 .desc-edit textarea{width:100%;min-height:160px;margin-top:6px}
 .actions .sp{flex:1}
+/* Hecho: cuadrícula de píxeles tipo «actividad de GitHub», una casilla por tarea, del color de su agente */
+.col.done .cards{gap:8px}
+.pix{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);grid-auto-columns:11px;gap:3px;overflow-x:auto;padding:2px 0 4px}
+.pix i{width:11px;height:11px;border-radius:3px;background:var(--c);cursor:pointer;transition:transform .12s}
+.pix i:hover{transform:scale(1.45);box-shadow:0 0 0 1px var(--panel)}
+.pix i.gap{background:transparent;cursor:default;pointer-events:none}
+.pix i.rej{opacity:.45}
+.pixfoot{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.pixfoot button{font-size:12px;padding:3px 8px}
+#doneDlg{max-width:760px;width:calc(100vw - 32px)}
+#doneDlg .ver{border-top:1px solid var(--line);padding:10px 0;display:grid;gap:6px}
+#doneDlg .ver h3{margin:0;font-size:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+#doneDlg .ver h3 small{color:var(--muted);font-weight:400}
+#doneDlg .ver .ret{color:var(--bad);font-size:12px}
+#doneDlg .ver .lb{font-variant-numeric:tabular-nums}
+#doneDlg ul{list-style:none;margin:0;padding:0;display:grid;gap:2px;font-size:13px}
+#doneDlg li{cursor:pointer;padding:2px 4px;border-radius:4px;display:flex;gap:8px;align-items:center}
+#doneDlg li:hover{background:var(--sunk)}
+#doneDlg li i{width:9px;height:9px;border-radius:2px;background:var(--c);flex:none}
+#doneDlg li span.id{color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
 #runner .info{color:var(--muted);font-size:13px}#runner .info b{color:var(--ink)}
 #agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;padding:12px 16px}
 .agent{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;border-top:3px solid var(--c);min-width:0}
@@ -122,6 +142,11 @@ dialog h3{margin:0;grid-column:1/-1;font-size:15px}
     <div class="log" id="fLog"></div>
     <div class="actions"><button type="button" id="fGrant" hidden>✓ Conceder permiso</button><button type="button" id="fDeny" hidden>✗ Denegar</button><span class="sp"></span><button value="cancel" formnovalidate>Cancelar</button><button class="primary" value="ok">Guardar</button></div>
   </form>
+</dialog>
+<dialog id="doneDlg">
+  <h3 style="margin-top:0">Hecho, por versión</h3>
+  <div id="doneBody"></div>
+  <div class="actions"><span class="sp"></span><button id="doneClose">Cerrar</button></div>
 </dialog>
 
 <script>
@@ -240,9 +265,12 @@ function render() {
     const ts = B.tasks.filter((t) => t.status === c.id && (!filter || t.owner === filter))
       .sort((x, y) => c.id === "done" ? (y.finished_at || "").localeCompare(x.finished_at || "") : PR[x.priority] - PR[y.priority] || x.id.localeCompare(y.id));
     const m = c.id === "done" ? ts.reduce((s, t) => s + (realMin(t) || 0), 0) : ts.reduce((s, t) => s + (t.estimate_min || 0), 0);
+    const body = c.id === "done" ? doneGrid(ts) : ts.map(card).join("");
     return `<section class="col ${c.id}" data-s="${c.id}"><h2><span>${c.name}</span><span>${ts.length}${m ? " · " + fmtMin(m) : ""}</span></h2>
-      <div class="cards">${ts.map(card).join("")}</div></section>`;
+      <div class="cards">${body}</div></section>`;
   }).join("");
+  document.querySelectorAll(".pix i[data-id]").forEach((el) => el.onclick = (e) => { e.stopPropagation(); openTask(el.dataset.id); });
+  const dg = $("#doneOpen"); if (dg) dg.onclick = openDone;
   document.querySelectorAll(".card").forEach((el) => {
     el.ondragstart = (e) => { dragId = el.dataset.id; e.dataTransfer.effectAllowed = "move"; };
     el.ondragend = () => setTimeout(() => (dragId = null), 50);
@@ -329,11 +357,65 @@ function openTask(id) {
   $("#dlg").returnValue = ""; $("#dlg").showModal();
 }
 $("#new").onclick = () => openTask(null);
+// ---- Hecho como cuadrícula de píxeles agrupada por versión ----
+let VERS = [];
+async function loadVersions() {
+  try {
+    const r = await fetch("/api/versions", { cache: "no-store" });
+    const v = r.ok ? await r.json() : [];
+    VERS = Array.isArray(v) ? v : [];  // servidor antiguo sin /api/versions: todo va al grupo «siguiente»
+  } catch (e) { VERS = []; }
+  if (B && !editing) render();
+}
+function versionOf(t) {  // la primera versión publicada después de terminar la tarea; si no hay, la siguiente
+  const end = t.finished_at || t.updated || "";
+  const v = VERS.find((x) => new Date(x.date) >= new Date(end));
+  return v ? v.name : "siguiente";
+}
+const isRejected = (t) => /RECHAZADA|NO se promueve/i.test((t.log || []).slice(-3).map((l) => l.msg).join(" "));
+function pixel(t) {
+  const a = agentOf(t.owner);
+  return `<i data-id="${t.id}" class="${isRejected(t) ? "rej" : ""}" style="--c:${a.color}" title="${esc(t.id + " · " + t.title + " · " + a.name)}"></i>`;
+}
+function groups(ts) {  // [[versión, tareas en orden de cierre]] de la más antigua a la más reciente
+  const by = new Map([...VERS.map((v) => [v.name, []]), ["siguiente", []]]);
+  [...ts].sort((x, y) => (x.finished_at || "").localeCompare(y.finished_at || "")).forEach((t) => by.get(versionOf(t))?.push(t));
+  return [...by.entries()].filter(([, l]) => l.length);
+}
+function doneGrid(ts) {
+  if (!ts.length) return '<div class="pixfoot">Aún no hay nada hecho</div>';
+  // cada versión empieza en una columna nueva, como las semanas de la actividad de GitHub
+  const cells = groups(ts).map(([, l], i) => {
+    const pad = (7 - (l.length % 7)) % 7;
+    return (i ? '<i class="gap"></i>'.repeat(7) : "") + l.map(pixel).join("") + '<i class="gap"></i>'.repeat(pad);
+  }).join("");
+  return `<div class="pix" id="doneOpen" title="Pulsa en una casilla para abrir la tarea, o en «Por versión»">${cells}</div>
+    <div class="pixfoot"><span>${ts.length} tareas · casilla clara = rechazada</span><span class="sp" style="flex:1"></span><button type="button" onclick="openDone()">Por versión</button></div>`;
+}
+function openDone() {
+  const ts = B.tasks.filter((t) => t.status === "done" && (!filter || t.owner === filter));
+  const info = Object.fromEntries(VERS.map((v) => [v.name, v]));
+  $("#doneBody").innerHTML = groups(ts).reverse().map(([name, l]) => {
+    const v = info[name];
+    const head = v ? `${v.tag ? esc(v.tag) + " · " : ""}${esc(name)}` : "Hacia la próxima versión";
+    const meta = v ? `<small>${new Date(v.date).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })}</small>` : "";
+    const lb = v?.lb != null ? `<span class="lb">nota ${String(v.lb).replace(".", ",")}</span>` : "";
+    const ret = v?.retired ? '<span class="ret">retirada</span>' : "";
+    return `<div class="ver"><h3>${head} ${lb} ${ret} ${meta}<small>· ${l.length} tareas</small></h3>
+      <div class="pix">${l.map(pixel).join("")}</div>
+      <ul>${l.slice().reverse().map((t) => `<li data-id="${t.id}" style="--c:${agentOf(t.owner).color}"><i></i><span class="id">${t.id}</span>${esc(t.title)}</li>`).join("")}</ul></div>`;
+  }).join("");
+  document.querySelectorAll("#doneBody [data-id]").forEach((el) => el.onclick = () => { $("#doneDlg").close(); openTask(el.dataset.id); });
+  $("#doneDlg").showModal();
+}
+$("#doneClose").onclick = () => $("#doneDlg").close();
+loadVersions(); setInterval(loadVersions, 60000);
 // enlaces directos (también para capturas): ?open=T-012 abre una tarjeta · ?live=think|measure|all despliega el log en directo
 load(true).then(() => {
   const q = new URLSearchParams(location.search);
   if (q.get("live")) { $("#liveLane").value = q.get("live"); $("#live").open = true; loadLive(); }
   if (q.get("open") && B?.tasks.some((t) => t.id === q.get("open"))) openTask(q.get("open"));
+  if (q.get("done")) loadVersions().then(openDone);
 });
 setInterval(load, 4000); setInterval(() => B && !editing && !dragId && render(), 30000);
 </script>

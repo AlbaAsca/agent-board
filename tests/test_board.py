@@ -17,6 +17,8 @@ def board(tmp_path, monkeypatch):
     # la copia no debe apuntar al runner real: «Parar» en un test mataría al agente que está trabajando
     b = json.loads((d / "board.json").read_text(encoding="utf-8"))
     b.setdefault("runner", {}).update(pid=None, state="stopped", current=None)
+    for st in (b.get("runners") or {}).values():  # también los carriles: si no, «Parar» mataba al runner real
+        st.update(pid=None, state="stopped", current=None)
     (d / "board.json").write_text(json.dumps(b, ensure_ascii=False), encoding="utf-8")
     return d
 

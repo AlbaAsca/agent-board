@@ -335,6 +335,35 @@ async def permission_decision(tid: str, request: Request):
     return {"ok": True}
 
 
+VERSION_TAGS = re.compile(os.environ.get("BOARD_VERSION_TAGS", r"^v?\d+(\.\d+)*$"))  # qué tags de git cuentan como versión
+
+
+@app.get("/api/versions")
+def versions():
+    """Versiones del proyecto (tags de git, por fecha; patrón en BOARD_VERSION_TAGS) para agrupar lo hecho. Si existen eval/kaggle.json y
+    eval/results/<versión>.json, añade la nota de Kaggle y si la versión se retiró."""
+    try:
+        out = subprocess.run(["git", "for-each-ref", "refs/tags", "--sort=creatordate",
+                              "--format=%(refname:short)|%(creatordate:iso-strict)"], cwd=ROOT, capture_output=True,
+                             text=True, creationflags=0x08000000 if os.name == "nt" else 0).stdout
+    except OSError:
+        out = ""
+    tags = [ln.split("|", 1) for ln in out.splitlines() if "|" in ln]
+    tags = [(n, d) for n, d in tags if VERSION_TAGS.match(n)]
+    kag = {}
+    kf = ROOT / "eval" / "kaggle.json"
+    if kf.exists():
+        for e in json.loads(kf.read_text(encoding="utf-8")).get("submissions", []):
+            kag[e.get("base")] = e
+    res = []
+    for name, date in tags:
+        info = kag.get(name, {})
+        rf = ROOT / "eval" / "results" / f"{name}.json"
+        retired = rf.exists() and json.loads(rf.read_text(encoding="utf-8")).get("active", True) is False
+        res.append({"name": name, "date": date, "tag": info.get("tag"), "lb": info.get("lb"), "retired": retired})
+    return res
+
+
 if __name__ == "__main__":
     import uvicorn
     ap = argparse.ArgumentParser()

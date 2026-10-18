@@ -97,6 +97,10 @@ Se arranca de tres maneras: el botón **▶ Iniciar** del panel (trabaja hasta q
 - La estimación frente al tiempo real de cada tarea.
 - Crear, editar y borrar tareas. La descripción se lee en lenguaje llano, con los detalles técnicos plegados.
 - **Solicitudes de permiso** con botones Conceder / Denegar (ver más abajo).
+- **Lo hecho, como la actividad de GitHub:** la columna «Hecho» es una cuadrícula de píxeles (una casilla por tarea, del color de
+  su agente; más clara si fue un experimento rechazado). Cada versión empieza en una columna nueva. «Por versión» abre la lista
+  agrupada por los tags de git (patrón en `BOARD_VERSION_TAGS`, por defecto `v1`, `v1.2`…), con la nota de cada versión si el
+  proyecto guarda `eval/kaggle.json`.
 
 | Una tarjeta, escrita para una persona | Lo que hace el agente, en directo |
 |---|---|
