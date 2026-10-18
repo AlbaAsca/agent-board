@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import board as bd  # noqa: E402
+import permissions as pm  # noqa: E402
 
 ROOT = Path(__file__).parents[1]
 STOP = Path(__file__).with_name("STOP")
@@ -62,9 +63,16 @@ RULES = """Reglas (modo autónomo, permisos: solo código y tests):
   criterio exacto) van al final, debajo de una línea que diga exactamente «## Técnico». Sin siglas ni nombres de código en la parte de arriba.
 - NO edites board/board.json a mano: usa siempre board/board.py.
 - No hagas git add ni git commit (está bloqueado): el runner guarda tus cambios al terminar la tarjeta.
+- Si te deniegan un comando que necesitas de verdad, no busques un rodeo que haga lo mismo: sigue con lo que puedas y añade
+  antes de RESULT una línea `PERMISO: <comando exacto> — <para qué lo necesitas>`. El runner lo concede si es de solo lectura,
+  o abre una solicitud que valida el consultor o el responsable; tu tarjeta se reintenta cuando se resuelve.
+- Variables de entorno: no escribas `VAR=x python …` (se deniega); pásalas como argumento del script.
+- No uses `python -c` de varias líneas, `cat >>` ni heredoc (se deniegan): crea o edita el fichero con Write/Edit
+  (por ejemplo un script en scripts/analysis/) y ejecútalo con `python scripts/analysis/<script>.py`.
 - Comandos permitidos: python (scripts, pytest, board.py), git status/diff/log, ls/cat/head/tail/diff y mkdir.
   Lanza cada comando solo (sin `cd ... &&`, `;` ni `|`), o se denegará. Para copiar o crear ficheros usa Edit/Write.
 - Los comandos de board.py van solos, nunca después de cat, heredoc, && o ;: si no, se deniegan y la tarjeta no se crea.
+  Escribe el comando en UNA sola línea: para separar párrafos usa «\n» dentro de --desc (board.py lo convierte en salto de línea). Un comando con saltos de línea reales se deniega y la tarjeta no se crea.
 - NO instales software ni dependencias, no descargues binarios, no hagas git push. Si la tarea lo
   necesita, o necesita un archivo o una decisión del responsable, para y termina con RESULT: human explicando
   exactamente qué tiene que hacer ella (pasos concretos).
@@ -208,7 +216,7 @@ def run_claude(claude, prompt, agent, timeout_s, tag="run"):
     # --strict-mcp-config sin --mcp-config: el agente no carga ningún MCP del proyecto (p. ej. uno que publique o envíe algo fuera)
     cmd = [claude, "-p", "--agent", agent, "--output-format", "stream-json", "--verbose", "--strict-mcp-config",
            "--permission-mode", "acceptEdits", "--permission-prompts", "none",
-           "--max-turns", "80", "--allowedTools", *ALLOWED, "--disallowedTools", *DENIED]
+           "--max-turns", "80", "--allowedTools", *ALLOWED, *pm.rules()[0], "--disallowedTools", *DENIED, *pm.rules()[1]]
     live = LOGDIR / f"live-{tag}-{agent}-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     set_runner(live=live.name)
     errf = live.with_suffix(".err")
@@ -278,6 +286,43 @@ def read_denied(path):
     return denied_commands(Path(path).read_text(encoding="utf-8", errors="replace").splitlines())
 
 
+PERM_RE = re.compile(r"PERMISO:\s*(.+?)\s+[—-]\s+(.+)")
+
+
+def permission_protocol(b, t, denied, text, agent):
+    """Protocolo de permisos (board/permissions.py) para los comandos que le denegaron al agente.
+    Devuelve (notas para la tarjeta, ¿se concedió algo?, ids de solicitudes abiertas)."""
+    reasons = {m.group(1).strip(): m.group(2).strip() for m in PERM_RE.finditer(text or "")}
+    notes, granted, requests = [], False, []
+    for cmd in dict.fromkeys(denied):  # sin repetidos, en orden
+        short = " ".join(cmd.split())[:90]
+        cat, pat, why = pm.classify(cmd)
+        if cat == "seguro":
+            pm.record("allowed", pat, f"concedido automáticamente a {agent} ({t['id']}): {why}", "runner")
+            notes.append(f"✓ permiso concedido automáticamente: {pat} ({why}); se reintenta")
+            granted = True
+        elif cat in ("prohibido", "encadenado"):
+            notes.append(f"✗ «{short}»: {why}")
+        else:
+            pending = next((x for x in b["tasks"] if x.get("perm", {}).get("pattern") == pat and x["status"] != "done"), None)
+            if pending is None:
+                agent_why = next((v for k, v in reasons.items() if k in cmd or cmd.startswith(k)), "")
+                pending = bd.new_task(
+                    b, f"Solicitud de permiso: {pat}", "consultor", 2, "media",
+                    f"El agente «{agent}» necesitaba un comando que no está en su lista de permitidos y se lo bloquearon "
+                    f"mientras hacía {t['id']}. No es de solo lectura ni está prohibido, así que lo tiene que validar una "
+                    f"persona.\n\nPara qué lo quería: {agent_why or '(no lo explicó)'}\n\nCómo decidir: concede si es seguro "
+                    f"repetirlo sin supervisión dentro del proyecto; deniega si escribe fuera, publica, borra o usa la red.\n\n"
+                    f"## Técnico\n- Comando: {short}\n- Patrón que se concedería: {pat}\n- Tarjeta: {t['id']}",
+                    status="human", manual="Abre la tarjeta y pulsa «Conceder» o «Denegar».", by="runner")
+                pending["kind"] = "permiso"
+                pending["perm"] = {"pattern": pat, "command": short, "agent": agent, "task": t["id"], "why": agent_why}
+            requests.append(pending["id"])
+            notes.append(f"? permiso solicitado: {pat} ({pending['id']}); la tarjeta espera la decisión")
+    return notes, granted, requests
+
+
+
 LIMIT_RE = re.compile(r"you.?ve hit your (weekly |daily |monthly |usage |session |5-hour )?limit|usage limit reached", re.I)
 LIMIT_MSG = "límite de uso, reintenta tras el reset"
 
@@ -331,6 +376,15 @@ def finish(tid, mode, agent, r):
         bd.set_status(b, t, new, agent, f"{verdict.upper()}: {summary}")
         if warn:
             bd.log(t, agent, warn)
+        if denied:
+            notes, granted, requests = permission_protocol(b, t, denied, r.get("text"), agent)
+            for n in notes:
+                bd.log(t, "runner", n)
+            if requests:  # espera a la decisión: vuelve a la cola cuando se resuelvan las solicitudes
+                t["deps"] = sorted(set(t.get("deps") or []) | set(requests))
+            if (granted or requests) and new == "blocked":
+                new = "review" if mode == "verify" else "next"
+                bd.set_status(b, t, new, "runner", "se reintentará con los permisos resueltos")
         return new
     return bd.update(f), verdict, summary
 
@@ -381,7 +435,7 @@ def contribute(o):
     set_runner(contrib_at=now(), contrib_agent=agent, state="idle", current=None,
                message=f"aportación {agent} ({tid}): {summary}")
     commit_own(before, f"chore(runner): contribution round by {agent}")
-    git("push", "-q")
+    git("push", "-q", "--follow-tags")
     print(f"  → {summary}")
     return True
 
@@ -445,7 +499,7 @@ def main():
                 set_runner(state="idle", current=None, message="Sin tareas ejecutables")
                 if o.contribute and contribute(o) and o.dry_run:
                     break
-                if o.once or o.until_idle or o.dry_run:
+                if o.once or o.until_idle:
                     break
                 time.sleep(o.idle)
                 continue
@@ -481,7 +535,7 @@ def main():
                             a.update(status="idle", current=None)
                 bd.update(free)
             commit_own(before, f"chore(runner): {tid} {verdict} by {agent}")
-            git("push", "-q")  # sincroniza con GitHub (lo hace el runner, nunca el agente)
+            git("push", "-q", "--follow-tags")  # sincroniza con GitHub (lo hace el runner, nunca el agente)
             print(f"  → {new} en {r['secs'] / 60:.1f} min · {summary}")
 
             if verdict == "limit":  # sin fallo contado; parar hasta el reset (la ejecución programada reintenta)

@@ -10,10 +10,10 @@ Sirve para cualquier tipo de proyecto: una app, un análisis de datos, un estudi
 Backlog → Próximo → En curso → Revisión → Hecho        + «Te necesita» y «Bloqueado»
 ```
 
-![Panel de agentes: cabecera con cola, precisión de estimaciones y tareas que te esperan; tarjetas de cada agente con su tarea actual y la siguiente; columnas kanban con estimado frente a real](docs/panel.png)
+![Panel de agentes: barra del runner con los dos carriles (pensar y medir), si el agente sigue vivo y su última acción, botones Iniciar, Parar y Pausar; tarjetas de cada agente con modelo y esfuerzo; columnas kanban con estimado frente a real](docs/panel.png)
 
-*Ejemplo con datos de demostración: en cada tarea se ve el tiempo real frente al estimado (en rojo si se pasa),
-qué está haciendo cada agente y qué te toca a ti («Te necesita»).*
+*Captura de un proyecto real ([store-sales-forecasting](https://github.com/AlbaAsca/store-sales-forecasting), octubre de 2026):
+el carril «Medir» trabaja, el desarrollador lleva 2 minutos en su tarjeta y su última acción fue hace 35 segundos.*
 
 ## Empezar un proyecto nuevo con esta base
 
@@ -87,7 +87,8 @@ Se arranca de tres maneras: el botón **▶ Iniciar** del panel (trabaja hasta q
   Si solo espera otra cosa (una medición, otra tarjeta), va a «Bloqueado».
 
 ### El panel
-`python board/server.py` (o `run-panel`) → http://localhost:8020. Muestra:
+`python board/server.py` (o `run-panel`) → http://localhost:8020. Enlaces directos: `?open=T-012` abre una tarjeta y
+`?live=think|measure|all` despliega el log en directo (útiles para compartir o para hacer capturas). Muestra:
 - Columnas kanban, con arrastrar y soltar para cambiar el estado.
 - Qué hace ahora cada agente, **si su proceso sigue vivo** y cuándo hizo su última acción. Si se ha caído, lo dice.
 - **Ver en directo** qué está haciendo el agente (qué piensa, qué herramienta usa y qué le devuelve), sin gastar tokens:
@@ -95,6 +96,26 @@ Se arranca de tres maneras: el botón **▶ Iniciar** del panel (trabaja hasta q
 - Botones **▶ Iniciar**, **■ Parar** (mata al agente y devuelve su tarjeta a Próximo) y **Pausar**.
 - La estimación frente al tiempo real de cada tarea.
 - Crear, editar y borrar tareas. La descripción se lee en lenguaje llano, con los detalles técnicos plegados.
+- **Solicitudes de permiso** con botones Conceder / Denegar (ver más abajo).
+
+| Una tarjeta, escrita para una persona | Lo que hace el agente, en directo |
+|---|---|
+| ![Ficha de una tarjeta: arriba la explicación en lenguaje llano y «Cómo sabremos si funciona», los detalles técnicos plegados, y el historial con tiempos](docs/panel-tarjeta.png) | ![Vista en directo: cada paso del agente con su herramienta y lo que recibe; un comando denegado aparece marcado en rojo](docs/panel-directo.png) |
+
+### Protocolo de permisos entre agentes
+Los agentes autónomos trabajan con una lista corta de comandos permitidos, y a menudo chocan con algo que necesitan.
+Cuando al runner le deniegan un comando a un agente, `board/permissions.py` lo clasifica y actúa:
+
+| Tipo | Ejemplo | Qué pasa |
+|---|---|---|
+| **Seguro** (solo lectura dentro del proyecto) | `git show`, `git tag --list`, `.venv/Scripts/python …` | Se concede automáticamente, queda registrado y la tarjeta se reintenta |
+| **Encadenado** | `cat >> f <<EOF`, `VAR=x python …`, comandos con saltos de línea | No se concede: se le anota cómo hacerlo (un comando por llamada, Write/Edit) |
+| **Prohibido** | `git push`, `pip install`, `rm`, publicar | Nunca, con el motivo anotado para que no lo reintente |
+| **Dudoso** | cualquier otra herramienta | Tarjeta «Solicitud de permiso» en «Te necesita» con **Conceder / Denegar**; la tarjeta del agente espera |
+
+El agente explica para qué lo necesita con una línea `PERMISO: <comando> — <para qué>`. Todo lo concedido o denegado queda en
+`board/permissions.json` (quién, cuándo, por qué). A mano:
+`python board/permissions.py list | grant "<patrón>" --why "…" | deny "<patrón>" --why "…"`.
 
 `board/board.json` es la única fuente de verdad. Solo se modifica con `board/board.py`, que bloquea el
 archivo porque escriben a la vez el panel, el modo autónomo y los agentes.
@@ -154,6 +175,8 @@ python board/board.py list
   con batería ni recupera las perdidas, un proceso lanzado desde otra herramienta muere con ella, y la CLI de Claude que trae
   la app cambia de carpeta al actualizarse (se busca siempre la más reciente).
 - **Las descripciones las lee una persona:** lenguaje llano arriba y lo técnico debajo de `## Técnico`.
+- **Los permisos se piden, no se esquivan.** Un agente al que le niegan algo tiende a buscar un rodeo (heredoc, `python -c`
+  de varias líneas) que también se deniega. Con el protocolo, lo seguro se concede solo y lo dudoso lo decide una persona.
 - **Una instrucción contradictoria se paga:** «commits según CLAUDE.md» llevaba al desarrollador a intentar `git add`, que
   está bloqueado. Cada regla del agente tiene que ser compatible con sus permisos.
 
@@ -165,6 +188,7 @@ board/board.json          estado: proyecto, agentes, carriles, tareas (no editar
 board/server.py           servidor del panel (FastAPI) → http://localhost:8020
 board/panel.html          interfaz kanban con vista en directo y control del runner
 board/runner.py           modo autónomo: ejecuta tareas con `claude -p --agent <rol>`
+board/permissions.py      protocolo de permisos (clasifica comandos denegados; registro en permissions.json)
 .claude/agents/*.md       definición de cada agente
 CLAUDE.md                 instrucciones del proyecto para Claude (plantilla a rellenar)
 run-panel.*               arranca el panel

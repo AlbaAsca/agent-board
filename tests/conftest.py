@@ -8,6 +8,7 @@ import pytest
 BOARD_DIR = Path(__file__).parents[1] / "board"
 sys.path.insert(0, str(BOARD_DIR))
 import board as bd  # noqa: E402
+import permissions as pm  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -17,3 +18,4 @@ def _board_aislado(tmp_path_factory, monkeypatch):
         shutil.copy(BOARD_DIR / "board.json", d / "board.json")
     monkeypatch.setattr(bd, "F", d / "board.json")
     monkeypatch.setattr(bd, "LOCK", d / ".lock")
+    monkeypatch.setattr(pm, "F", d / "permissions.json")  # tampoco el registro real de permisos

@@ -131,6 +131,12 @@ def pid_alive(pid):
     return bool(ok) and code.value == 259  # STILL_ACTIVE
 
 
+
+def _unescape(text):
+    """«\\n» escrito en una línea → salto de línea: el runner deniega comandos de varias líneas."""
+    return text.replace("\\n", "\n") if text else text
+
+
 def task(b, tid):
     return next(t for t in b["tasks"] if t["id"] == tid)
 
@@ -203,7 +209,7 @@ def main():
         return
     if o.cmd == "add":
         def f(b):
-            t = new_task(b, o.title, o.owner, o.est, o.prio, o.desc, o.status, o.manual, o.by)
+            t = new_task(b, o.title, o.owner, o.est, o.prio, _unescape(o.desc), o.status, o.manual, o.by)
             t["deps"] = [d.strip() for d in o.deps.split(",") if d.strip()]
             return t["id"]
         print(update(f))
@@ -217,7 +223,7 @@ def main():
         update(lambda b: log(task(b, o.id), o.by, text)); return
     if o.cmd == "desc":
         def g(b):
-            t = task(b, o.id); t["desc"], t["updated"] = o.text, now(); log(t, o.by, "descripción reescrita")
+            t = task(b, o.id); t["desc"], t["updated"] = _unescape(o.text), now(); log(t, o.by, "descripción reescrita")
         update(g); return
     if o.cmd == "estimate":
         def f(b):

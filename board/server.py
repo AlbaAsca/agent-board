@@ -212,7 +212,10 @@ def live_events(lines):
                     body = c.get("content")
                     if isinstance(body, list):
                         body = " ".join(x.get("text", "") for x in body if isinstance(x, dict))
-                    out.append({"kind": "error" if c.get("is_error") else "resultado", "text": _short(body or "(vacío)")})
+                    kind = "resultado"
+                    if c.get("is_error"):  # distinguir «me lo han prohibido» de un fallo normal que el agente corrige solo
+                        kind = "denegado" if "Permission for this tool use was denied" in (body or "") else "error"
+                    out.append({"kind": kind, "text": _short(body or "(vacío)")})
         elif typ == "result":
             out.append({"kind": "fin", "text": _short(e.get("result") or e.get("subtype") or "", 400)})
     return out
@@ -298,6 +301,38 @@ def runner_stop(lane: str = None):
             _state(b, k).update(state="stopped", current=None, message="Parado desde el panel", heartbeat=bd.now())
     bd.update(f)
     return {"ok": True, "killed": killed}
+
+
+@app.post("/api/permissions/{tid}")
+async def permission_decision(tid: str, request: Request):
+    """Botones Conceder / Denegar de una «Solicitud de permiso»: lo apunta en permissions.json y libera la tarjeta que esperaba."""
+    body, bd = await request.json(), _bd()
+    decision = body.get("decision")
+    if decision not in ("grant", "deny"):
+        raise HTTPException(400, "decision debe ser grant o deny")
+    spec = importlib.util.spec_from_file_location("permissions", HERE / "permissions.py")
+    pm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pm)
+
+    def f(b):
+        t = bd.task(b, tid)
+        perm = t.get("perm")
+        if not perm or t["status"] == "done":
+            raise HTTPException(409, "Esta tarjeta no es una solicitud de permiso pendiente")
+        why = body.get("why") or ("concedido" if decision == "grant" else "denegado") + " por el responsable desde el panel"
+        pm.record("allowed" if decision == "grant" else "denied", perm["pattern"], why, "responsable")
+        bd.set_status(b, t, "done", "tú", ("✓ Concedido: " if decision == "grant" else "✗ Denegado: ") + perm["pattern"])
+        try:
+            orig = bd.task(b, perm["task"])
+            bd.log(orig, "tú", ("✓ permiso concedido: " if decision == "grant" else "✗ permiso denegado (no lo intentes otra vez): ")
+                   + perm["pattern"])
+        except StopIteration:
+            pass
+    try:
+        bd.update(f)
+    except StopIteration:
+        raise HTTPException(404, "tarjeta no encontrada")
+    return {"ok": True}
 
 
 if __name__ == "__main__":
