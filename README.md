@@ -12,7 +12,7 @@ Backlog → Próximo → En curso → Revisión → Hecho        + «Te necesita
 
 ![Panel de agentes: barra del runner con los dos carriles (pensar y medir), si el agente sigue vivo y su última acción, botones Iniciar, Parar y Pausar; tarjetas de cada agente con modelo y esfuerzo; columnas kanban con estimado frente a real](docs/panel.png)
 
-*Captura de un proyecto real ([store-sales-forecasting](https://github.com/AlbaAsca/store-sales-forecasting), octubre de 2026):
+*Captura de un proyecto real (store-sales-forecasting, octubre de 2026):
 el carril «Medir» trabaja, el desarrollador lleva 2 minutos en su tarjeta y su última acción fue hace 35 segundos.*
 
 ## Empezar un proyecto nuevo con esta base
