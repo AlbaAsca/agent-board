@@ -47,6 +47,18 @@ header h1{font-size:16px;margin:0}
 .pix i:hover{transform:scale(1.45);box-shadow:0 0 0 1px var(--panel)}
 .pix i.gap{background:transparent;cursor:default;pointer-events:none}
 .pix i.rej{opacity:.45}
+.vgroup{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 8px;display:grid;gap:6px}
+.vgroup.retired{opacity:.6}
+.vhead{display:flex;gap:6px;align-items:baseline;font-size:12px;cursor:pointer;color:var(--muted)}
+.vhead b{color:var(--ink);font-size:13px}
+.vhead > *{white-space:nowrap}
+.vhead .ret{color:var(--bad)}
+.vhead .lb{font-variant-numeric:tabular-nums;color:var(--ink)}
+.vhead .n{font-variant-numeric:tabular-nums;min-width:18px;text-align:right}
+.pixw{display:grid;grid-template-columns:repeat(auto-fill,11px);gap:3px}
+.pixw i{width:11px;height:11px;border-radius:3px;background:var(--c);cursor:pointer;transition:transform .12s}
+.pixw i:hover{transform:scale(1.45);box-shadow:0 0 0 1px var(--panel)}
+.pixw i.rej{opacity:.4}
 .pixfoot{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
 .pixfoot button{font-size:12px;padding:3px 8px}
 #doneDlg{max-width:760px;width:calc(100vw - 32px)}
@@ -269,8 +281,8 @@ function render() {
     return `<section class="col ${c.id}" data-s="${c.id}"><h2><span>${c.name}</span><span>${ts.length}${m ? " · " + fmtMin(m) : ""}</span></h2>
       <div class="cards">${body}</div></section>`;
   }).join("");
-  document.querySelectorAll(".pix i[data-id]").forEach((el) => el.onclick = (e) => { e.stopPropagation(); openTask(el.dataset.id); });
-  const dg = $("#doneOpen"); if (dg) dg.onclick = openDone;
+  document.querySelectorAll(".col.done i[data-id]").forEach((el) => el.onclick = (e) => { e.stopPropagation(); openTask(el.dataset.id); });
+  document.querySelectorAll(".vgroup .vhead").forEach((el) => el.onclick = () => openDone(el.parentElement.dataset.v));
   document.querySelectorAll(".card").forEach((el) => {
     el.ondragstart = (e) => { dragId = el.dataset.id; e.dataTransfer.effectAllowed = "move"; };
     el.ondragend = () => setTimeout(() => (dragId = null), 50);
@@ -384,16 +396,22 @@ function groups(ts) {  // [[versión, tareas en orden de cierre]] de la más ant
 }
 function doneGrid(ts) {
   if (!ts.length) return '<div class="pixfoot">Aún no hay nada hecho</div>';
-  // cada versión empieza en una columna nueva, como las semanas de la actividad de GitHub
-  const cells = groups(ts).map(([, l], i) => {
-    const pad = (7 - (l.length % 7)) % 7;
-    return (i ? '<i class="gap"></i>'.repeat(7) : "") + l.map(pixel).join("") + '<i class="gap"></i>'.repeat(pad);
+  // un bloque por versión, de la más reciente a la más antigua: de un vistazo se ve qué tareas entraron en cada una
+  const info = Object.fromEntries(VERS.map((v) => [v.name, v]));
+  const blocks = groups(ts).reverse().map(([name, l]) => {
+    const v = info[name];
+    const title = v ? (v.tag || name) : "En camino";
+    const sub = v && v.tag ? name : "";
+    const lb = v?.lb != null ? String(v.lb).replace(".", ",") : "";
+    return `<div class="vgroup${v?.retired ? " retired" : ""}" data-v="${esc(name)}">
+      <div class="vhead" title="Ver la lista de esta versión"><b>${esc(title)}</b>${sub && !v?.retired ? `<span>${esc(sub)}</span>` : ""}${v?.retired ? '<span class="ret">retirada</span>' : ""}<span class="sp"></span>${lb ? `<span class="lb">${lb}</span>` : ""}<span class="n">${l.length}</span></div>
+      <div class="pixw">${l.map(pixel).join("")}</div></div>`;
   }).join("");
-  return `<div class="pix" id="doneOpen" title="Pulsa en una casilla para abrir la tarea, o en «Por versión»">${cells}</div>
-    <div class="pixfoot"><span>${ts.length} tareas · casilla clara = rechazada</span><span class="sp" style="flex:1"></span><button type="button" onclick="openDone()">Por versión</button></div>`;
+  return blocks + `<div class="pixfoot">${ts.length} tareas · casilla clara = rechazada</div>`;
 }
-function openDone() {
-  const ts = B.tasks.filter((t) => t.status === "done" && (!filter || t.owner === filter));
+function openDone(only) {
+  const ts = B.tasks.filter((t) => t.status === "done" && (!filter || t.owner === filter))
+    .filter((t) => !only || versionOf(t) === only);
   const info = Object.fromEntries(VERS.map((v) => [v.name, v]));
   $("#doneBody").innerHTML = groups(ts).reverse().map(([name, l]) => {
     const v = info[name];
