@@ -80,6 +80,8 @@ Se arranca de tres maneras: el botón **▶ Iniciar** del panel (trabaja hasta q
   sin que dos pruebas pesadas se peleen por la CPU.
 - **Comandos denegados a la vista:** si a un agente le bloquean un comando, queda anotado en su tarjeta; si lo bloqueado
   era crear una tarjeta, la suya pasa a Bloqueado en vez de darse por hecha.
+- **Tope de turnos por rol** (`MAX_TURNS`): los agentes que investigan se alargan; limitar sus turnos recorta mucho el consumo
+  de tokens. Otra palanca grande es mantener CLAUDE.md corto: todos los agentes lo releen en cada turno.
 - **Sin falsos fallos:** si se agota el cupo de uso de Claude, la tarjeta vuelve a su sitio y no cuenta como error.
 - **Rondas de aportación** (`--contribute`): si no hay tareas, un agente revisa el proyecto y propone como mucho dos tarjetas.
 - **Pausa:** con el botón del panel o creando `board/STOP`. Los registros quedan en `board/runs/`.

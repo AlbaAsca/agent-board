@@ -209,14 +209,18 @@ def commit_own(before, msg):
     return files
 
 
-def run_claude(claude, prompt, agent, timeout_s, tag="run"):
+# Tope de turnos por rol (medido en un proyecto real: los agentes que investigan gastaban 3-4 veces más por ejecución)
+MAX_TURNS = {"experto": 40, "investigador": 50, "tester": 40}
+
+
+def run_claude(claude, prompt, agent, timeout_s, tag="run", max_turns=80):
     """Lanza al agente con salida en streaming: cada evento (texto, herramienta, resultado) se guarda al momento en
     board/runs/live-<tag>-<agente>-<fecha>.jsonl para verlo en directo desde el panel. No cuesta tokens extra:
     es la misma ejecución, solo que la CLI va contando lo que hace en vez de esperar al final."""
     # --strict-mcp-config sin --mcp-config: el agente no carga ningún MCP del proyecto (p. ej. uno que publique o envíe algo fuera)
     cmd = [claude, "-p", "--agent", agent, "--output-format", "stream-json", "--verbose", "--strict-mcp-config",
            "--permission-mode", "acceptEdits", "--permission-prompts", "none",
-           "--max-turns", "80", "--allowedTools", *ALLOWED, *pm.rules()[0], "--disallowedTools", *DENIED, *pm.rules()[1]]
+           "--max-turns", str(max_turns), "--allowedTools", *ALLOWED, *pm.rules()[0], "--disallowedTools", *DENIED, *pm.rules()[1]]
     live = LOGDIR / f"live-{tag}-{agent}-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     set_runner(live=live.name)
     errf = live.with_suffix(".err")
@@ -409,7 +413,7 @@ def contribute(o):
     tid = bd.update(card)
     before = snapshot()
     set_runner(state="working", current=tid, agent=agent, started=now(), message=f"{agent}: ronda de aportación ({tid})")
-    r = run_claude(o.claude, prompt, agent, timeout_s=20 * 60, tag=tid)
+    r = run_claude(o.claude, prompt, agent, timeout_s=20 * 60, tag=tid, max_turns=min(25, MAX_TURNS.get(agent, 80)))
     (LOGDIR / f"contrib-{agent}-{datetime.now():%Y%m%d-%H%M%S}.txt").write_text(
         f"{r['text']}\n\n--- stderr ---\n{r['err']}", encoding="utf-8")
     m = next((RESULT_RE.search(l) or re.search(r"RESULT:\s*(none)\b\s*[—:-]?\s*(.*)", l, re.I)
@@ -524,7 +528,8 @@ def main():
             set_runner(state="working", current=tid, agent=agent, started=now(), message=f"{agent} con {tid}")
 
             est = t.get("estimate_min") or 15
-            r = run_claude(o.claude, build_prompt(t, mode, agent), agent, timeout_s=int(min(120, max(15, est * 4)) * 60), tag=tid)
+            r = run_claude(o.claude, build_prompt(t, mode, agent), agent, timeout_s=int(min(120, max(15, est * 4)) * 60), tag=tid,
+                           max_turns=MAX_TURNS.get(agent, 80))
             (LOGDIR / f"{tid}-{agent}-{datetime.now():%Y%m%d-%H%M%S}.txt").write_text(
                 f"{r['text']}\n\n--- stderr ---\n{r['err']}", encoding="utf-8")
             new, verdict, summary = finish(tid, mode, agent, r)
