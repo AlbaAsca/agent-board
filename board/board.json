@@ -44,7 +44,7 @@
       "id": "consultor",
       "name": "Consultor",
       "role": "Habla contigo, prioriza y reparte",
-      "color": "#c2410c",
+      "color": "#ff9e64",
       "status": "idle",
       "current": null
     },
@@ -52,7 +52,7 @@
       "id": "arquitecto",
       "name": "Arquitecto",
       "role": "Diseña la solución y trocea en tareas estimadas",
-      "color": "#7c3aed",
+      "color": "#bb9af7",
       "status": "idle",
       "current": null
     },
@@ -60,7 +60,7 @@
       "id": "desarrollador",
       "name": "Desarrollador",
       "role": "Implementa las tareas",
-      "color": "#2563eb",
+      "color": "#7aa2f7",
       "status": "idle",
       "current": null
     },
@@ -68,7 +68,7 @@
       "id": "tester",
       "name": "Tester",
       "role": "Verifica, escribe tests y busca fallos",
-      "color": "#16a34a",
+      "color": "#9ece6a",
       "status": "idle",
       "current": null
     },
@@ -76,7 +76,7 @@
       "id": "investigador",
       "name": "Investigador",
       "role": "Busca alternativas, librerías y mejoras",
-      "color": "#0891b2",
+      "color": "#7dcfff",
       "status": "idle",
       "current": null
     },
@@ -84,7 +84,7 @@
       "id": "experto",
       "name": "Experto de dominio",
       "role": "Revisa con criterio del sector (renómbralo)",
-      "color": "#ca8a04",
+      "color": "#e0af68",
       "status": "idle",
       "current": null
     }

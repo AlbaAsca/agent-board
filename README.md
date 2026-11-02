@@ -106,7 +106,7 @@ Se arranca de tres maneras: el botón **▶ Iniciar** del panel (trabaja hasta q
 
 | Una tarjeta, escrita para una persona | Lo que hace el agente, en directo |
 |---|---|
-| ![Ficha de una tarjeta: arriba la explicación en lenguaje llano y «Cómo sabremos si funciona», los detalles técnicos plegados, y el historial con tiempos](docs/panel-tarjeta.png) | ![Vista en directo: cada paso del agente con su herramienta y lo que recibe; un comando denegado aparece marcado en rojo](docs/panel-directo.png) |
+| ![Ficha de una tarjeta: arriba la explicación en lenguaje llano y «Cómo sabremos si funciona», los detalles técnicos plegados, y el historial con tiempos](docs/panel-tarjeta.png) | ![Vista en directo: cada paso del agente con su herramienta, lo que recibe y su resumen final](docs/panel-directo.png) |
 
 ### Protocolo de permisos entre agentes
 Los agentes autónomos trabajan con una lista corta de comandos permitidos, y a menudo chocan con algo que necesitan.

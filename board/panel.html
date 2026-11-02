@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Panel de trabajo</title>
 <style>
-:root{--bg:#f6f5f2;--panel:#fff;--sunk:#efede8;--ink:#1d1d1b;--muted:#77756f;--line:#e2e0da;--acc:#c2410c;--ok:#059669;--warn:#b45309;--bad:#dc2626}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1d1d1b;--sunk:#181817;--ink:#eceae4;--muted:#9a978f;--line:#2f2e2a;--acc:#fb923c;--ok:#34d399;--warn:#fbbf24;--bad:#f87171}}
+/* Paleta Tokyo Night Day / Tokyo Night (github.com/folke/tokyonight.nvim) */
+:root{--bg:#e1e2e7;--panel:#e9e9ed;--sunk:#d0d5e3;--ink:#3760bf;--muted:#6172b0;--line:#c4c8da;--acc:#2e7de9;--ok:#587539;--warn:#8c6c3e;--bad:#f52a65}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1b26;--panel:#24283b;--sunk:#16161e;--ink:#c0caf5;--muted:#9aa5ce;--line:#292e42;--acc:#7aa2f7;--ok:#9ece6a;--warn:#e0af68;--bad:#f7768e}}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.4 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;display:flex;flex-direction:column}
 button,select,input,textarea{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 9px}
