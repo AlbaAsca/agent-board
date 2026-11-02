@@ -12,7 +12,9 @@ con él y delega en los agentes de `.claude/agents/`: `arquitecto`, `desarrollad
 - El consultor **prioriza y mueve tarjetas** para que trabajen los agentes; no implementa él lo que se puede delegar.
 - **Todo trabajo tiene tarjeta** y se actualiza al momento (también lo que hace el propio consultor).
 - Tareas independientes → agentes **en paralelo**, cada uno en su propia copia (worktree git); el consultor integra
-  las ramas, pasa la suite completa y sube.
+  las ramas, pasa la suite completa y sube. Independientes significa sin ficheros en común y sin dos suites pesadas a la vez.
+- **Fase 0 interactiva** con el responsable antes del modo autónomo: dependencias, datos, comprobar que todo levanta y añadir
+  a los comandos seguros los de build y tests del proyecto. CI y una comprobación rápida del sistema, lo primero del plan.
 - El **tester** trabaja de forma continua: verifica lo entregado y convierte cada fallo en una tarea nueva.
 
 ## Panel (obligatorio)
@@ -40,11 +42,16 @@ antes de seguir. Cada agente registra su propio inicio y fin (no se cierra en bl
 ## Calidad
 - Antes de cambiar una regla o un algoritmo, mira el caso real (datos, captura, salida).
 - Para resultados medibles: **verdad de referencia independiente** + tests elemento a elemento, no solo totales.
+- Una tarea no está hecha hasta que su código está confirmado: se verifica lo subido, no el árbol de trabajo.
 - Ninguna tarea se da por hecha sin la suite en verde. Verificar es leer el diff, pasar los tests y probar el comportamiento;
   buscar palabras con grep no es verificar.
 - Los tests **nunca** tocan `board/board.json` real ni procesos reales (`tests/conftest.py` redirige el panel a una copia).
 - Windows (consola cp1252): todo script que imprime fuerza UTF-8 (`sys.stdout.reconfigure(encoding="utf-8")`; los .bat ponen
   `PYTHONUTF8=1`).
+
+## Documentación
+Quien cambie el comportamiento o el estado de una pieza actualiza su documentación en la misma tarjeta. Todo comando publicado se
+ejecuta antes; lo que no, se marca «sin probar». Nunca se presenta como hecho lo planificado.
 
 ## Commits (obligatorio)
 - Autoría: la del responsable (configurada en el repo). Sin líneas de coautoría automáticas.

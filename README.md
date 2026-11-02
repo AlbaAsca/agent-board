@@ -27,7 +27,11 @@ Claude hará esto:
 1. Copiar esta base en el repositorio nuevo, con `board/`, `.claude/agents/`, `CLAUDE.md` y los scripts.
 2. Rellenar `CLAUDE.md`: el objetivo, el comando de tests y la estructura.
 3. Renombrar `board.json → "project"` y adaptar `experto.md` al sector (delineante, abogado, analista…).
-4. Pasar al arquitecto el primer bloque de tareas, con estimación, prioridad y criterio de aceptación.
+4. Hacer contigo la **fase 0, en sesión interactiva**: repositorio, dependencias, datos y comprobar que todo levanta. En modo
+   autónomo no se instala nada, así que un proyecto sin preparar acabaría entero en «Te necesita». Añade a los comandos seguros los
+   de tests y build del proyecto (`ALLOWED` en `board/runner.py` y `SAFE` en `board/permissions.py`).
+5. Pasar al arquitecto el primer bloque de tareas, con estimación, prioridad y criterio de aceptación. La **CI y una comprobación
+   rápida del sistema** van al principio del plan, no al final.
 
 A mano, en local, basta con esto:
 ```bash
@@ -185,6 +189,33 @@ python board/board.py list
   de varias líneas) que también se deniega. Con el protocolo, lo seguro se concede solo y lo dudoso lo decide una persona.
 - **Una instrucción contradictoria se paga:** «commits según CLAUDE.md» llevaba al desarrollador a intentar `git add`, que
   está bloqueado. Cada regla del agente tiene que ser compatible con sus permisos.
+
+## Lecciones de lakehouse-mcp (noviembre 2026)
+
+- **Una tarjeta hecha no significa código subido.** Una tarjeta se cortó por el límite de uso y se reintentó: quedó como hecha y
+  verificada, pero sus ficheros no estaban en ningún commit y la rama no compilaba para nadie más. Verifica sobre lo confirmado,
+  no sobre el árbol de trabajo, y pon CI desde el principio.
+- **Escribir la documentación destapa fallos.** Al probar cada comando para la wiki apareció que el conector se registraba, pero
+  su tarea fallaba, mientras la comprobación rápida seguía diciendo «ok». Una comprobación debe mirar el resultado final, no si
+  el servicio responde.
+- **Publica lo que has ejecutado.** Cada comando documentado se ejecuta antes; lo que no, se marca «sin probar». Lo planificado se
+  marca como planificado, también en el README.
+- **Casi todo el tiempo es espera, no trabajo.** Las pasadas de los agentes duraban pocos minutos; las tarjetas tardaban por el
+  límite de uso y por una suite de tests que pasó de 2 a más de 15 minutos. Mide dónde se va el tiempo antes de optimizar, y
+  permite lanzar los tests de un solo módulo. El panel refresca cada 4 s: que una tarjeta no se mueva no significa que esté colgada.
+- **Paraleliza por ficheros y por recursos.** Dos tarjetas en paralelo no deben tocar los mismos ficheros, ni lanzar a la vez dos
+  suites que levanten contenedores en la misma máquina. Lo que suele ir bien en paralelo: documentación, investigación y CI.
+- **No integres en la copia donde trabaja el runner.** Un merge con conflicto allí bloquea sus commits mientras dura. Crea el
+  worktree de cada agente desde la rama de trabajo y resuelve lo que se pueda en una copia aparte.
+- **Un permiso amplio es fácil de conceder y difícil de ver.** Dos veces se aprobó desde el panel un `docker *` o un `./mk *` para
+  resolver un caso concreto, y con ello también comandos que borran datos. Concede el patrón más estrecho y revísalo después.
+- **Las rondas de aportación gastan cupo.** Si vas justo, arranca el carril sin ellas: `python board/runner.py --lane think --until-idle`.
+- **Busca lo que ya sabes antes de dar algo por roto.** Docker «caído» tenía un script de arranque anotado en la memoria de otro
+  proyecto. Lo que sirve para todos los proyectos va a la memoria general.
+- **Antes de comprometerte con una tecnología, compruébala.** MinIO, prevista en el plan, ya no se distribuía; y el conector de
+  Iceberg no publica su paquete. Verifica versiones y artefactos en la fase 0, con una alternativa lista.
+- **Enseña pronto algo que funcione.** Un plan largo deja lo más vistoso para el final; adelanta un recorrido mínimo de principio
+  a fin.
 
 ## Estructura
 
