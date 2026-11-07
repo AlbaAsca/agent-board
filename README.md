@@ -217,6 +217,46 @@ python board/board.py list
 - **Enseña pronto algo que funcione.** Un plan largo deja lo más vistoso para el final; adelanta un recorrido mínimo de principio
   a fin.
 
+## Lecciones de lakehouse-mcp, segunda parte: operar y gastar menos (noviembre 2026)
+
+**Tiempo y tokens**
+- **Mide antes de optimizar.** `board/runs/live-*.jsonl` trae el coste y los turnos de cada ejecución. En lakehouse-mcp, el
+  desarrollador era el 55 % del gasto y el tester el 38 %; de cada pasada, el modelo pensaba un cuarto del tiempo y el resto esperaba tests.
+- **Tests por niveles.** En cada tarjeta, solo los del módulo (un `MODULE=` en el comando de tests); la suite completa, en la CI de
+  cada push; con contenedores, solo si la tarjeta toca piezas compartidas. Cancelar ejecuciones antiguas de la CI en la rama de
+  trabajo hace que no termine ninguna, porque cada tarjeta sube un push.
+- **La conversación con el consultor es lo más caro.** Cada mensaje vuelve a procesar todo el historial. Para preguntar el estado,
+  mira el panel; abre una sesión nueva por día o fase con un traspaso corto (`docs/handoff.md`).
+- **Los agentes generan trabajo.** Testers y desarrolladores crean tarjetas sin parar, y cada una cuesta después una o dos
+  ejecuciones. Las que no rompen ni bloquean van a prioridad baja y el consultor las ordena antes de cada versión.
+- **La documentación, por versión.** Actualizarla en cada tarjeta obliga a leerla y editarla cada vez.
+- **Topes de turnos para todos los roles** (`MAX_TURNS`), no solo para los que investigan.
+
+**El protocolo de permisos**
+- **Las palabras también parecen comandos.** «del» en español coincidía con el comando de borrar de Windows, y un salto de línea
+  dentro de una descripción contaba como varios comandos: las tarjetas se bloqueaban en falso. Compara solo fuera de las comillas.
+- **Los permisos amplios se acumulan.** `docker *`, `gh *` o `./mk *` se conceden para resolver un caso y se quedan. Una lista
+  de prohibidos que gane siempre (borrar volúmenes, apagar el stack, borrar en GitHub) los hace mucho menos peligrosos.
+- **Los comandos con efectos sobre datos compartidos no son de los agentes.** Un agente volvió a cargar la muestra y triplicó la
+  tabla de la demo. Prohíbe expresamente esos objetivos (`seed`, `down`...).
+- **Las herramientas no son comandos.** El runner abría solicitudes de permiso para `Grep`, que ya estaba permitido.
+
+**El runner y sus estados**
+- **Un bloqueo no es un fallo.** Tres bloqueos legítimos seguidos pausaron un carril entero, con el mensaje «En pausa» y sin motivo.
+- **Un corte deja basura.** Cuando el cupo corta a un agente, su salida a medias acababa como motivo de bloqueo (un trozo de JSON).
+- **Cada carril confirma solo lo suyo.** Con dos carriles en la misma copia, el commit de uno se llevó el trabajo a medias del otro, y la CI lo detectó.
+- **Un comentario en «Te necesita» no le llega a nadie.** El runner no coge esas tarjetas: avisa al consultor o devuélvelas a la cola.
+- **Nada se reanuda solo.** Cortes de cupo, reinicios y cortes de luz dejaron el runner parado hasta dos días. La tarea programada
+  lo reanuda, pero no arranca Docker, y el tiempo medido de las tarjetas cortadas no sirve para calibrar.
+
+**Demos y versiones**
+- **Ensaya antes de grabar.** El ensayo destapó tres fallos que los tests con un modelo simulado no veían: un modelo vacío, un
+  modelo retirado por el proveedor y un agente que se caía al recibir un error de una herramienta.
+- **La capa gratuita de un modelo no llega para evaluar.** Unas 20 peticiones al día por modelo, y cada pregunta del agente gasta
+  varias. Pon límite de tiempo en las llamadas: un modelo saturado dejó al agente esperando 7 minutos.
+- **Agrupa en versiones.** Una tarjeta de publicación con dependencias, un `CHANGELOG.md` que solo recoge lo comprobado y una
+  etiqueta `vX.Y.Z`: el panel agrupa lo hecho por etiquetas, y `main` solo recibe lo que está en verde.
+
 ## Estructura
 
 ```

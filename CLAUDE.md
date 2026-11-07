@@ -43,15 +43,25 @@ antes de seguir. Cada agente registra su propio inicio y fin (no se cierra en bl
 - Antes de cambiar una regla o un algoritmo, mira el caso real (datos, captura, salida).
 - Para resultados medibles: **verdad de referencia independiente** + tests elemento a elemento, no solo totales.
 - Una tarea no está hecha hasta que su código está confirmado: se verifica lo subido, no el árbol de trabajo.
-- Ninguna tarea se da por hecha sin la suite en verde. Verificar es leer el diff, pasar los tests y probar el comportamiento;
+- Ninguna tarea se da por hecha sin los tests de su módulo en verde (Tests por niveles). Verificar es leer el diff, pasar los tests y probar el comportamiento;
   buscar palabras con grep no es verificar.
 - Los tests **nunca** tocan `board/board.json` real ni procesos reales (`tests/conftest.py` redirige el panel a una copia).
 - Windows (consola cp1252): todo script que imprime fuerza UTF-8 (`sys.stdout.reconfigure(encoding="utf-8")`; los .bat ponen
   `PYTHONUTF8=1`).
 
 ## Documentación
-Quien cambie el comportamiento o el estado de una pieza actualiza su documentación en la misma tarjeta. Todo comando publicado se
-ejecuta antes; lo que no, se marca «sin probar». Nunca se presenta como hecho lo planificado.
+Quien cambie una pieza anota en su tarjeta qué cambia para la documentación, y esta se actualiza **una vez por versión**, en la
+tarjeta de publicación. Todo comando publicado se ejecuta antes; lo que no, se marca «sin probar». Nunca se presenta como hecho lo planificado.
+- **Sesiones del consultor:** al empezar, lee `docs/handoff.md` y el panel; al terminar, actualiza `docs/handoff.md` (corto).
+
+## Tests por niveles
+- **Desarrollador y tester:** solo los tests del módulo que cambia: <comando, p. ej. `make test MODULE=x`>.
+- **Suite completa:** la CI en cada push; en la rama de trabajo, sin cancelar ejecuciones en curso. Si la CI está en rojo, tarjeta de prioridad alta.
+- **Excepción:** las tarjetas que tocan piezas compartidas (infraestructura, integración de punta a punta) pasan sus tests con contenedores antes de cerrar.
+
+## Versiones
+Una tarjeta de publicación por versión, con las demás como dependencias. `CHANGELOG.md` recoge solo lo comprobado. Rama
+`release/X.Y.Z`, etiqueta `vX.Y.Z` en main (el panel agrupa lo hecho por etiquetas) y a `main` solo lo que está en verde.
 
 ## Commits (obligatorio)
 - Autoría: la del responsable (configurada en el repo). Sin líneas de coautoría automáticas.
@@ -72,6 +82,9 @@ ejecuta antes; lo que no, se marca «sin probar». Nunca se presenta como hecho 
 - **Comandos denegados:** quedan anotados en la tarjeta; si lo denegado era crear una tarjeta, la suya pasa a Bloqueado.
 - Si se agota el cupo de uso de Claude no cuenta como fallo: la tarjeta vuelve a su estado. Tiempo máximo por tarjeta: 4 × la
   estimación, entre 15 y 120 min. Logs en `board/runs/`.
+
+- **Tarjetas nuevas de los agentes:** prioridad baja salvo que algo esté roto o bloqueado; el consultor las ordena antes de cada versión.
+- **Comandos con efectos sobre datos compartidos** (cargar datos, apagar el stack, borrar volúmenes): solo el responsable. Deniégalos en `board/permissions.py`.
 
 ## Código
 <estructura del proyecto: carpetas principales y qué hay en cada una>
